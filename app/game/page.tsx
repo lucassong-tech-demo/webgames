@@ -14,6 +14,11 @@ type SaveStatus = {
   error: string | null;
 };
 
+type LeaderboardEntry = {
+  player_name: string;
+  score: number;
+};
+
 
 const GRID_SIZE = 20;
 const CANVAS_SIZE = 400;
@@ -27,6 +32,7 @@ export default function SnakeGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // 修改 gameLoopRef 的定义，提供 null 作为初始值
   const gameLoopRef = useRef<NodeJS.Timeout | null>(null);
+  const scoreSubmissionLockedRef = useRef(false);
   const [snake, setSnake] = useState<Position[]>([INITIAL_POSITION]);
   const [food, setFood] = useState<Position>({ x: 0, y: 0 });
   const [direction, setDirection] = useState<Direction>('RIGHT');
@@ -35,12 +41,33 @@ export default function SnakeGame() {
   const [error, setError] = useState<string | null>(null);
   const [speed, setSpeed] = useState(INITIAL_SPEED);
 
-  // 添加新的状态
   const [countdown, setCountdown] = useState(10);
-  const [isSaving, setIsSaving] = useState(false);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const [playerName, setPlayerName] = useState<string>('');
   const [saveStatus, setSaveStatus] = useState<SaveStatus>({ isSaving: false, error: null });
+  const [hasSubmittedScore, setHasSubmittedScore] = useState(false);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(true);
+  const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
+
+  const loadLeaderboard = useCallback(async () => {
+    try {
+      setLeaderboardError(null);
+      const response = await fetch('/api/scores', { cache: 'no-store' });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to load leaderboard');
+      }
+
+      setLeaderboard(data.scores);
+    } catch (error) {
+      console.error('Error loading leaderboard:', error);
+      setLeaderboardError('Unable to load leaderboard');
+    } finally {
+      setIsLeaderboardLoading(false);
+    }
+  }, []);
  
   // 添加处理输入的函数
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -169,7 +196,15 @@ export default function SnakeGame() {
 
   // 添加保存分数的函数
   const saveScore = async () => {
-    if (!playerName || countdown === 0) return;
+    const normalizedPlayerName = playerName.trim();
+    if (
+      !normalizedPlayerName ||
+      countdown === 0 ||
+      hasSubmittedScore ||
+      scoreSubmissionLockedRef.current
+    ) return;
+
+    scoreSubmissionLockedRef.current = true;
     
     try {
       setSaveStatus({ isSaving: true, error: null });
@@ -179,7 +214,7 @@ export default function SnakeGame() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          playerName,
+          playerName: normalizedPlayerName,
           score,
         }),
       });
@@ -191,10 +226,12 @@ export default function SnakeGame() {
       }
 
       setSaveStatus({ isSaving: false, error: null });
+      setHasSubmittedScore(true);
+      await loadLeaderboard();
       alert('Score saved successfully!');
-      setPlayerName('');
     } catch (error) {
       console.error('Error saving score:', error);
+      scoreSubmissionLockedRef.current = false;
       setSaveStatus({ 
         isSaving: false, 
         error: 'Failed to save score' 
@@ -212,13 +249,22 @@ export default function SnakeGame() {
     setDirection('RIGHT');
     setScore(0);
     setGameOver(false);
+    setPlayerName('');
+    setHasSubmittedScore(false);
+    setSaveStatus({ isSaving: false, error: null });
+    scoreSubmissionLockedRef.current = false;
     generateFood();
 
     if (countdownRef.current) {
       clearInterval(countdownRef.current);
+      countdownRef.current = null;
     }
     setCountdown(10);
   }, []);
+
+  useEffect(() => {
+    loadLeaderboard();
+  }, [loadLeaderboard]);
 
 
   const handleSpeedChange = useCallback((type: 'increase' | 'decrease') => {
@@ -268,34 +314,33 @@ export default function SnakeGame() {
       canvas.removeEventListener('keydown', handleKeyDown);
     };
   }, [gameOver, moveSnake, drawGame, handleKeyDown, food.x, food.y, generateFood, speed]); // 添加 speed 依赖
-  
-  // 添加倒计时的 useEffect
-  useEffect(() => {
-    if (gameOver) {
-      // 初始化倒计时
-      setCountdown(10);
-      countdownRef.current = setInterval(() => {
-        setCountdown(prev => {
-          if (prev <= 1) {
-            if (countdownRef.current) {
-              clearInterval(countdownRef.current);
-            }
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
 
-    // 清理函数
+  useEffect(() => {
+    if (!gameOver) return;
+
+    setCountdown(10);
+    countdownRef.current = setInterval(() => {
+      setCountdown(currentCountdown => {
+        if (currentCountdown <= 1) {
+          if (countdownRef.current) {
+            clearInterval(countdownRef.current);
+            countdownRef.current = null;
+          }
+          return 0;
+        }
+
+        return currentCountdown - 1;
+      });
+    }, 1000);
+
     return () => {
       if (countdownRef.current) {
         clearInterval(countdownRef.current);
         countdownRef.current = null;
       }
     };
-  }, [gameOver]); // 只依赖 gameOver 状态
-
+  }, [gameOver]);
+  
   // 在 return 语句前添加错误检查
   if (error) {
     return (
@@ -317,51 +362,92 @@ export default function SnakeGame() {
       
       
       {/* 使用 flex row 来并排放置游戏和控制按钮 */}
-      <div className="flex flex-row items-start gap-6">
+      <div className="flex w-full flex-col items-center justify-center gap-6 lg:flex-row lg:items-start">
        
         {/* 游戏主区域 */}
-        <div className="flex flex-col items-center">
+        <div className="flex w-full max-w-[400px] flex-col items-center">
           <h1 className="text-4xl font-bold mb-4 text-gray-800">Snake Game</h1>
           <div className="text-2xl font-semibold text-gray-700 mb-4">Score: {score}</div>
           <canvas
             ref={canvasRef}
             width={CANVAS_SIZE}
             height={CANVAS_SIZE}
-            className="border-4 border-gray-300 rounded-lg shadow-lg bg-white focus:outline-none"
+            className="h-auto max-w-full border-4 border-gray-300 rounded-lg shadow-lg bg-white focus:outline-none"
             tabIndex={0}
           />
         </div>
 
-        {/* 右侧速度控制区域 */}
-        <div className="flex flex-col gap-4 bg-white p-4 rounded-lg shadow-lg">
-          <h3 className="text-lg font-semibold text-gray-700 text-center">Speed</h3>
-          <button
-            onClick={() => handleSpeedChange('increase')}
-            className="p-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 
-                     transition-colors duration-200 focus:outline-none flex items-center justify-center"
-            title="Speed Up"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-            </svg>
-            <span className="ml-2"></span>
-          </button>
-          
-          <div className="text-sm font-medium text-gray-600 text-center">
-            Speed: {Math.round((INITIAL_SPEED / speed) * 100)}%
+        <div className="flex w-full max-w-[400px] flex-col gap-6 lg:w-60">
+          {/* 右侧速度控制区域 */}
+          <div className="flex flex-col gap-4 bg-white p-4 rounded-lg shadow-lg">
+            <h3 className="text-lg font-semibold text-gray-700 text-center">Speed</h3>
+            <button
+              onClick={() => handleSpeedChange('increase')}
+              className="p-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600
+                      transition-colors duration-200 focus:outline-none flex items-center justify-center"
+              title="Speed Up"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+              </svg>
+              <span className="ml-2"></span>
+            </button>
+
+            <div className="text-sm font-medium text-gray-600 text-center">
+              Speed: {Math.round((INITIAL_SPEED / speed) * 100)}%
+            </div>
+
+            <button
+              onClick={() => handleSpeedChange('decrease')}
+              className="p-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600
+                      transition-colors duration-200 focus:outline-none flex items-center justify-center"
+              title="Slow Down"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+              <span className="ml-2"></span>
+            </button>
           </div>
-          
-          <button
-            onClick={() => handleSpeedChange('decrease')}
-            className="p-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 
-                     transition-colors duration-200 focus:outline-none flex items-center justify-center"
-            title="Slow Down"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-            <span className="ml-2"></span>
-          </button>
+
+          {/* 玩家排行榜 */}
+          <section className="rounded-lg bg-white p-4 shadow-lg" aria-labelledby="leaderboard-title">
+            <h3 id="leaderboard-title" className="mb-3 text-center text-lg font-semibold text-gray-700">
+              Top 5 Players
+            </h3>
+
+            {isLeaderboardLoading ? (
+              <p className="py-4 text-center text-sm text-gray-500">Loading...</p>
+            ) : leaderboardError ? (
+              <div className="py-2 text-center">
+                <p className="mb-2 text-sm text-red-500">{leaderboardError}</p>
+                <button
+                  type="button"
+                  onClick={loadLeaderboard}
+                  className="text-sm font-semibold text-blue-600 hover:text-blue-700"
+                >
+                  Try again
+                </button>
+              </div>
+            ) : leaderboard.length === 0 ? (
+              <p className="py-4 text-center text-sm text-gray-500">No scores yet</p>
+            ) : (
+              <ol className="space-y-2">
+                {leaderboard.map((entry, index) => (
+                  <li
+                    key={`${entry.player_name}-${entry.score}-${index}`}
+                    className="flex items-center gap-3 rounded-md bg-gray-50 px-3 py-2 text-sm"
+                  >
+                    <span className="w-5 font-bold text-gray-500">{index + 1}</span>
+                    <span className="min-w-0 flex-1 truncate font-medium text-gray-800" title={entry.player_name}>
+                      {entry.player_name}
+                    </span>
+                    <span className="font-bold tabular-nums text-blue-600">{entry.score}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
         </div>
       </div>
 
@@ -374,17 +460,21 @@ export default function SnakeGame() {
               type="text"
               value={playerName}
               onChange={handleNameChange}
+              disabled={hasSubmittedScore}
               placeholder="Enter your name"
               className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900
                       caret-blue-600 placeholder:text-gray-400
+                      disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500
                       focus:outline-none focus:ring-2 focus:ring-blue-500
                       w-64" // 增加输入框宽度
               maxLength={50}
               autoFocus // 自动聚焦
             />
-            <div className="text-lg text-gray-600">
-              Time to save: {countdown}s
-            </div>
+            {hasSubmittedScore ? (
+              <div className="text-lg font-medium text-green-600">Score saved</div>
+            ) : (
+              <div className="text-lg text-gray-600">Time to save: {countdown}s</div>
+            )}
           </div>
           <div className="flex gap-4">
             <button
@@ -396,13 +486,13 @@ export default function SnakeGame() {
             </button>
             <button
               onClick={saveScore}
-              disabled={countdown === 0 || saveStatus.isSaving}
+              disabled={!playerName.trim() || countdown === 0 || saveStatus.isSaving || hasSubmittedScore}
               className={`px-6 py-3 rounded-lg font-bold transition-colors duration-200
-                ${countdown === 0 || saveStatus.isSaving
+                ${!playerName.trim() || countdown === 0 || saveStatus.isSaving || hasSubmittedScore
                   ? 'bg-gray-400 cursor-not-allowed'
                   : 'bg-blue-500 hover:bg-blue-600 text-white'}`}
             >
-              {saveStatus.isSaving ? 'Saving...' : 'Save Score'}
+              {saveStatus.isSaving ? 'Saving...' : hasSubmittedScore ? 'Saved' : 'Save Score'}
             </button>
           </div>
           {saveStatus.error && (
