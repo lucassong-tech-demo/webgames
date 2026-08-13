@@ -14,6 +14,27 @@ function getPool() {
   return pool;
 }
 
+export async function GET() {
+  try {
+    const query = `
+      SELECT player_name, MAX(score)::integer AS score
+      FROM public.player_score
+      GROUP BY player_name
+      ORDER BY score DESC, player_name ASC
+      LIMIT 5
+    `;
+    const { rows } = await getPool().query(query);
+
+    return NextResponse.json(
+      { scores: rows },
+      { headers: { 'Cache-Control': 'no-store' } },
+    );
+  } catch (error) {
+    console.error('Error loading scores:', error);
+    return NextResponse.json({ error: 'Failed to load scores' }, { status: 500 });
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const { playerName, score } = await request.json();
