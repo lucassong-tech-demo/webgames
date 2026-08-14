@@ -222,7 +222,12 @@ export default function SnakeGame() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to save score');
+        scoreSubmissionLockedRef.current = false;
+        setSaveStatus({
+          isSaving: false,
+          error: data.error || 'Failed to save score',
+        });
+        return;
       }
 
       setSaveStatus({ isSaving: false, error: null });
