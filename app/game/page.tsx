@@ -1,13 +1,13 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-// 定义类型
-type Position = {
-  x: number;
-  y: number;
-};
-
-type Direction = 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
+import {
+  advanceGame,
+  BOARD_SIZE,
+  changeDirection,
+  createGameState,
+  type Direction,
+} from "@/lib/game/engine";
 
 type SaveStatus = {
   isSaving: boolean;
@@ -20,24 +20,26 @@ type LeaderboardEntry = {
 };
 
 
-const GRID_SIZE = 20;
-const CANVAS_SIZE = 400;
+const CELL_SIZE = 20;
+const CANVAS_SIZE = BOARD_SIZE * CELL_SIZE;
 const INITIAL_SPEED = 150;
-const INITIAL_POSITION = { x: 200, y: 200 };
 const SPEED_MULTIPLIER = 0.5;
 const MIN_SPEED = 50;  // 最快速度
 const MAX_SPEED = 300; // 最慢速度
+
+function createLocalSeed() {
+  const values = new Uint32Array(1);
+  crypto.getRandomValues(values);
+  return values[0] & 0x7fffffff;
+}
 
 export default function SnakeGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // 修改 gameLoopRef 的定义，提供 null 作为初始值
   const gameLoopRef = useRef<NodeJS.Timeout | null>(null);
   const scoreSubmissionLockedRef = useRef(false);
-  const [snake, setSnake] = useState<Position[]>([INITIAL_POSITION]);
-  const [food, setFood] = useState<Position>({ x: 0, y: 0 });
-  const [direction, setDirection] = useState<Direction>('RIGHT');
-  const [score, setScore] = useState(0);
-  const [gameOver, setGameOver] = useState(false);
+  const [game, setGame] = useState(() => createGameState(createLocalSeed()));
+  const { snake, food, score, gameOver } = game;
   const [error, setError] = useState<string | null>(null);
   const [speed, setSpeed] = useState(INITIAL_SPEED);
 
@@ -73,57 +75,11 @@ export default function SnakeGame() {
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setPlayerName(e.target.value);
   };
-  // 生成食物的函数
-  const generateFood = useCallback(() => {
-    const newFood = {
-      x: Math.floor(Math.random() * (CANVAS_SIZE / GRID_SIZE)) * GRID_SIZE,
-      y: Math.floor(Math.random() * (CANVAS_SIZE / GRID_SIZE)) * GRID_SIZE
-    };
-    setFood(newFood);
-  }, []); // 不需要任何依赖
 
   // 移动蛇
   const moveSnake = useCallback(() => {
-    if (gameOver) return;
-
-    setSnake(currentSnake => {
-      const head = { ...currentSnake[0] };
-
-      // 计算新的头部位置
-      switch (direction) {
-        case 'UP':
-          head.y = (head.y - GRID_SIZE + CANVAS_SIZE) % CANVAS_SIZE;
-          break;
-        case 'DOWN':
-          head.y = (head.y + GRID_SIZE) % CANVAS_SIZE;
-          break;
-        case 'LEFT':
-          head.x = (head.x - GRID_SIZE + CANVAS_SIZE) % CANVAS_SIZE;
-          break;
-        case 'RIGHT':
-          head.x = (head.x + GRID_SIZE) % CANVAS_SIZE;
-          break;
-      }
-
-      // 检查是否撞到自己
-      if (currentSnake.slice(1).some(segment => segment.x === head.x && segment.y === head.y)) {
-        setGameOver(true);
-        return currentSnake;
-      }
-
-      const newSnake = [head, ...currentSnake];
-      
-      // 检查是否吃到食物
-      if (head.x === food.x && head.y === food.y) {
-        setScore(prev => prev + 10);
-        setTimeout(generateFood, 0); // 使用 setTimeout 延迟生成食物
-      } else {
-        newSnake.pop();
-      }
-
-      return newSnake;
-    });
-  }, [direction, food.x, food.y, gameOver]); // 明确指定依赖
+    setGame(current => advanceGame(current));
+  }, []);
 
   // 绘制游戏
   const drawGame = useCallback((ctx: CanvasRenderingContext2D) => {
@@ -133,7 +89,7 @@ export default function SnakeGame() {
 
     // 绘制网格
     ctx.strokeStyle = '#ddd';
-    for (let i = 0; i < CANVAS_SIZE; i += GRID_SIZE) {
+    for (let i = 0; i < CANVAS_SIZE; i += CELL_SIZE) {
       ctx.beginPath();
       ctx.moveTo(i, 0);
       ctx.lineTo(i, CANVAS_SIZE);
@@ -147,25 +103,29 @@ export default function SnakeGame() {
     // 绘制蛇
     ctx.fillStyle = '#4CAF50';
     snake.forEach((segment, index) => {
-      ctx.fillRect(segment.x, segment.y, GRID_SIZE - 1, GRID_SIZE - 1);
+      const x = segment.x * CELL_SIZE;
+      const y = segment.y * CELL_SIZE;
+      ctx.fillRect(x, y, CELL_SIZE - 1, CELL_SIZE - 1);
       // 绘制蛇头
       if (index === 0) {
         ctx.fillStyle = '#388E3C';
-        ctx.fillRect(segment.x, segment.y, GRID_SIZE - 1, GRID_SIZE - 1);
+        ctx.fillRect(x, y, CELL_SIZE - 1, CELL_SIZE - 1);
       }
     });
 
     // 绘制食物
-    ctx.fillStyle = '#FF5722';
-    ctx.beginPath();
-    ctx.arc(
-      food.x + GRID_SIZE/2,
-      food.y + GRID_SIZE/2,
-      GRID_SIZE/2 - 1,
-      0,
-      Math.PI * 2
-    );
-    ctx.fill();
+    if (food) {
+      ctx.fillStyle = '#FF5722';
+      ctx.beginPath();
+      ctx.arc(
+        food.x * CELL_SIZE + CELL_SIZE / 2,
+        food.y * CELL_SIZE + CELL_SIZE / 2,
+        CELL_SIZE / 2 - 1,
+        0,
+        Math.PI * 2
+      );
+      ctx.fill();
+    }
   }, [snake, food]);
 
   // 键盘控制
@@ -180,19 +140,9 @@ export default function SnakeGame() {
     const newDirection = keyDirections[event.key];
     if (!newDirection) return;
 
-    // 防止反向移动
-    const opposites: Record<Direction, Direction> = {
-      UP: 'DOWN',
-      DOWN: 'UP',
-      LEFT: 'RIGHT',
-      RIGHT: 'LEFT'
-    };
-
-    if (opposites[newDirection] !== direction) {
-      setDirection(newDirection);
-      event.preventDefault(); // 只阻止方向键的默认行为
-    }
-  }, [direction]);
+    setGame(current => changeDirection(current, newDirection));
+    event.preventDefault();
+  }, []);
 
   // 添加保存分数的函数
   const saveScore = async () => {
@@ -250,15 +200,11 @@ export default function SnakeGame() {
       clearInterval(gameLoopRef.current);
       gameLoopRef.current = null;
     }
-    setSnake([INITIAL_POSITION]);
-    setDirection('RIGHT');
-    setScore(0);
-    setGameOver(false);
+    setGame(createGameState(createLocalSeed()));
     setPlayerName('');
     setHasSubmittedScore(false);
     setSaveStatus({ isSaving: false, error: null });
     scoreSubmissionLockedRef.current = false;
-    generateFood();
 
     if (countdownRef.current) {
       clearInterval(countdownRef.current);
@@ -283,7 +229,7 @@ export default function SnakeGame() {
     });
   }, []);
 
-  // 初始化游戏
+  // 绘制最新的确定性游戏状态
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -291,34 +237,39 @@ export default function SnakeGame() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // 初始生成食物
-    if (!food.x && !food.y) {
-      generateFood();
-    }
+    drawGame(ctx);
+  }, [drawGame]);
 
-    // 确保 canvas 获得焦点
+  // 初始化键盘控制
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
     canvas.focus();
+    canvas.addEventListener('keydown', handleKeyDown);
 
-    // 游戏循环
+    return () => {
+      canvas.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [handleKeyDown]);
+
+  // 游戏循环只推进引擎 tick；绘制由独立 effect 处理
+  useEffect(() => {
+    if (gameOver) return;
+
     const gameLoop = setInterval(() => {
-      if (!gameOver) {
-        moveSnake();
-        drawGame(ctx);
-      }
-    }, speed); // 使用当前速度
+      moveSnake();
+    }, speed);
 
     gameLoopRef.current = gameLoop;
-
-    // 只在 canvas 上添加键盘事件监听
-    canvas.addEventListener('keydown', handleKeyDown);
 
     return () => {
       if (gameLoopRef.current) {
         clearInterval(gameLoopRef.current);
+        gameLoopRef.current = null;
       }
-      canvas.removeEventListener('keydown', handleKeyDown);
     };
-  }, [gameOver, moveSnake, drawGame, handleKeyDown, food.x, food.y, generateFood, speed]); // 添加 speed 依赖
+  }, [gameOver, moveSnake, speed]);
 
   useEffect(() => {
     if (!gameOver) return;
