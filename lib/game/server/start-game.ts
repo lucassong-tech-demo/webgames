@@ -13,7 +13,6 @@ type GameSessionRow = QueryResultRow & {
   id: string;
   seed: number;
   engine_version: number;
-  expires_at: Date;
 };
 
 function getPool() {
@@ -43,7 +42,7 @@ export async function createGameSession(
     `
       INSERT INTO public.game_session (engine_version, seed)
       VALUES ($1, $2)
-      RETURNING id, seed, engine_version, expires_at
+      RETURNING id, seed, engine_version
     `,
     [ENGINE_VERSION, seed],
   );
@@ -57,6 +56,5 @@ export async function createGameSession(
     sessionId: session.id,
     seed: session.seed,
     engineVersion: session.engine_version,
-    expiresAt: session.expires_at.toISOString(),
   };
 }

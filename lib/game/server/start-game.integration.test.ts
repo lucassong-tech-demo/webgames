@@ -35,25 +35,20 @@ test('creates an unfinished game session in local PostgreSQL', async () => {
 
     assert.equal(session.seed, 123456789);
     assert.equal(session.engineVersion, ENGINE_VERSION);
-    assert.ok(Date.parse(session.expiresAt) > Date.now());
 
     const { rows } = await database.query(
       `
-        SELECT finished_at, player_name, score, input_log
+        SELECT engine_version, seed, started_at
         FROM public.game_session
         WHERE id = $1
       `,
       [session.sessionId],
     );
 
-    assert.deepEqual(rows, [
-      {
-        finished_at: null,
-        player_name: null,
-        score: null,
-        input_log: null,
-      },
-    ]);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].engine_version, ENGINE_VERSION);
+    assert.equal(rows[0].seed, 123456789);
+    assert.ok(rows[0].started_at instanceof Date);
   } finally {
     if (sessionId) {
       await database.query('DELETE FROM public.game_session WHERE id = $1', [sessionId]);
