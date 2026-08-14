@@ -1,11 +1,12 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 import {
-  advanceGame,
+  createRecordedGame,
+  recordedGameReducer,
+} from "@/lib/game/client/recorded-game";
+import {
   BOARD_SIZE,
-  changeDirection,
-  createGameState,
   type Direction,
 } from "@/lib/game/engine";
 
@@ -38,7 +39,12 @@ export default function SnakeGame() {
   // 修改 gameLoopRef 的定义，提供 null 作为初始值
   const gameLoopRef = useRef<NodeJS.Timeout | null>(null);
   const scoreSubmissionLockedRef = useRef(false);
-  const [game, setGame] = useState(() => createGameState(createLocalSeed()));
+  const [recordedGame, dispatchGame] = useReducer(
+    recordedGameReducer,
+    undefined,
+    () => createRecordedGame(createLocalSeed()),
+  );
+  const { game } = recordedGame;
   const { snake, food, score, gameOver } = game;
   const [error, setError] = useState<string | null>(null);
   const [speed, setSpeed] = useState(INITIAL_SPEED);
@@ -78,7 +84,7 @@ export default function SnakeGame() {
 
   // 移动蛇
   const moveSnake = useCallback(() => {
-    setGame(current => advanceGame(current));
+    dispatchGame({ type: 'advance' });
   }, []);
 
   // 绘制游戏
@@ -140,7 +146,7 @@ export default function SnakeGame() {
     const newDirection = keyDirections[event.key];
     if (!newDirection) return;
 
-    setGame(current => changeDirection(current, newDirection));
+    dispatchGame({ type: 'change-direction', direction: newDirection });
     event.preventDefault();
   }, []);
 
@@ -200,7 +206,7 @@ export default function SnakeGame() {
       clearInterval(gameLoopRef.current);
       gameLoopRef.current = null;
     }
-    setGame(createGameState(createLocalSeed()));
+    dispatchGame({ type: 'reset', seed: createLocalSeed() });
     setPlayerName('');
     setHasSubmittedScore(false);
     setSaveStatus({ isSaving: false, error: null });
