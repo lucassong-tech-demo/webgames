@@ -1,6 +1,6 @@
 import type { Direction } from '../engine';
 
-export type GameInput = Readonly<{
-  tick: number;
+export type TurnLogEntry = Readonly<{
+  movesSincePreviousTurn: string;
   direction: Direction;
 }>;

@@ -3,12 +3,23 @@ import test from 'node:test';
 
 import {
   advanceGame,
+  BOARD_SIZE,
   changeDirection,
   createGameState,
+  ENGINE_VERSION,
+  MAX_DIRECTION_CHANGES,
   nextRandomUint32,
+  SCORE_PER_FOOD,
+  WIN_SNAKE_LENGTH,
   type Direction,
   type GameState,
 } from './engine.ts';
+
+test('uses the turn-limited game rules protocol', () => {
+  assert.equal(ENGINE_VERSION, 2);
+  assert.equal(MAX_DIRECTION_CHANGES, 100);
+  assert.equal(WIN_SNAKE_LENGTH, 100);
+});
 
 test('seeded PRNG produces a stable sequence', () => {
   const first = nextRandomUint32(123456789);
@@ -49,6 +60,7 @@ test('rejects immediate reverse direction changes', () => {
   assert.strictEqual(changeDirection(state, 'LEFT'), state);
   const turned = changeDirection(state, 'DOWN');
   assert.equal(turned.direction, 'DOWN');
+  assert.equal(turned.turnsUsed, 1);
   assert.strictEqual(changeDirection(turned, 'LEFT'), turned);
   assert.equal(changeDirection(advanceGame(turned), 'LEFT').direction, 'LEFT');
 });
@@ -77,6 +89,48 @@ test('eating food grows the snake and increments the score', () => {
   assert.notDeepEqual(next.food, state.food);
 });
 
+test('reaching the target snake length wins the game', () => {
+  const head = { x: 10, y: 10 };
+  const nextHead = { x: 11, y: 10 };
+  const body = [];
+
+  for (let y = 0; y < BOARD_SIZE && body.length < WIN_SNAKE_LENGTH - 2; y += 1) {
+    for (let x = 0; x < BOARD_SIZE && body.length < WIN_SNAKE_LENGTH - 2; x += 1) {
+      if ((x !== head.x || y !== head.y) && (x !== nextHead.x || y !== nextHead.y)) {
+        body.push({ x, y });
+      }
+    }
+  }
+
+  const state: GameState = {
+    ...createGameState(7),
+    snake: [head, ...body],
+    food: nextHead,
+    score: (WIN_SNAKE_LENGTH - 2) * SCORE_PER_FOOD,
+  };
+  const next = advanceGame(state);
+
+  assert.equal(next.snake.length, WIN_SNAKE_LENGTH);
+  assert.equal(next.score, (WIN_SNAKE_LENGTH - 1) * SCORE_PER_FOOD);
+  assert.equal(next.result, 'WON');
+  assert.equal(next.food, null);
+});
+
+test('the final allowed turn takes effect for one move before ending the game', () => {
+  const state: GameState = {
+    ...createGameState(11),
+    turnsUsed: MAX_DIRECTION_CHANGES - 1,
+    food: { x: 0, y: 0 },
+  };
+  const turned = changeDirection(state, 'DOWN');
+  const next = advanceGame(turned);
+
+  assert.equal(turned.turnsUsed, MAX_DIRECTION_CHANGES);
+  assert.deepEqual(next.snake[0], { x: 10, y: 11 });
+  assert.equal(next.result, 'TURN_LIMIT_REACHED');
+  assert.strictEqual(changeDirection(next, 'LEFT'), next);
+});
+
 test('self-collision ends the game without mutating the input state', () => {
   const snake = [
     { x: 2, y: 2 },
@@ -92,8 +146,8 @@ test('self-collision ends the game without mutating the input state', () => {
   };
   const next = advanceGame(state);
 
-  assert.equal(next.gameOver, true);
+  assert.equal(next.result, 'LOST');
   assert.equal(next.tick, 1);
   assert.deepEqual(next.snake, snake);
-  assert.equal(state.gameOver, false);
+  assert.equal(state.result, 'PLAYING');
 });

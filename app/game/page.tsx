@@ -7,6 +7,7 @@ import {
 } from "@/lib/game/client/recorded-game";
 import {
   BOARD_SIZE,
+  MAX_DIRECTION_CHANGES,
   type Direction,
 } from "@/lib/game/engine";
 
@@ -45,7 +46,9 @@ export default function SnakeGame() {
     () => createRecordedGame(createLocalSeed()),
   );
   const { game } = recordedGame;
-  const { snake, food, score, gameOver } = game;
+  const { snake, food, score, result, turnsUsed } = game;
+  const gameOver = result !== 'PLAYING';
+  const turnsRemaining = MAX_DIRECTION_CHANGES - turnsUsed;
   const [error, setError] = useState<string | null>(null);
   const [speed, setSpeed] = useState(INITIAL_SPEED);
 
@@ -330,6 +333,9 @@ export default function SnakeGame() {
         <div className="flex w-full max-w-[400px] flex-col items-center">
           <h1 className="text-4xl font-bold mb-4 text-gray-800">Snake Game</h1>
           <div className="text-2xl font-semibold text-gray-700 mb-4">Score: {score}</div>
+          <div className="mb-4 text-lg font-semibold text-gray-700">
+            Turns Remaining: {turnsRemaining}
+          </div>
           <canvas
             ref={canvasRef}
             width={CANVAS_SIZE}
@@ -416,7 +422,13 @@ export default function SnakeGame() {
       {/* Game Over 显示 */}
       {gameOver && (
         <div className="mt-4 text-center">
-          <h2 className="text-3xl font-bold text-red-600 mb-4">Game Over!</h2>
+          <h2
+            className={`mb-4 text-3xl font-bold ${
+              result === 'WON' ? 'text-green-600' : 'text-red-600'
+            }`}
+          >
+            {result === 'WON' ? 'You Win!' : 'Game Over!'}
+          </h2>
           <div className="flex flex-col items-center gap-4 mb-4">
             <input
               type="text"

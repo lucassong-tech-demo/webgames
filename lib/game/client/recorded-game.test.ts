@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createRecordedGame, recordedGameReducer } from './recorded-game.ts';
+import {
+  createRecordedGame,
+  getMovesAfterLastTurn,
+  recordedGameReducer,
+} from './recorded-game.ts';
 
 test('records an accepted direction at the tick where it is applied', () => {
   const initial = createRecordedGame(42);
@@ -11,7 +15,10 @@ test('records an accepted direction at the tick where it is applied', () => {
   });
 
   assert.equal(changed.game.direction, 'DOWN');
-  assert.deepEqual(changed.inputLog, [{ tick: 0, direction: 'DOWN' }]);
+  assert.equal(changed.game.turnsUsed, 1);
+  assert.deepEqual(changed.turnLog, [
+    { movesSincePreviousTurn: '0', direction: 'DOWN' },
+  ]);
 });
 
 test('does not record rejected or redundant direction inputs', () => {
@@ -35,7 +42,9 @@ test('does not record rejected or redundant direction inputs', () => {
     recordedGameReducer(changed, { type: 'change-direction', direction: 'LEFT' }),
     changed,
   );
-  assert.deepEqual(changed.inputLog, [{ tick: 0, direction: 'DOWN' }]);
+  assert.deepEqual(changed.turnLog, [
+    { movesSincePreviousTurn: '0', direction: 'DOWN' },
+  ]);
 });
 
 test('records at most one accepted direction per tick', () => {
@@ -45,10 +54,11 @@ test('records at most one accepted direction per tick', () => {
   state = recordedGameReducer(state, { type: 'advance' });
   state = recordedGameReducer(state, { type: 'change-direction', direction: 'LEFT' });
 
-  assert.deepEqual(state.inputLog, [
-    { tick: 0, direction: 'DOWN' },
-    { tick: 1, direction: 'LEFT' },
+  assert.deepEqual(state.turnLog, [
+    { movesSincePreviousTurn: '0', direction: 'DOWN' },
+    { movesSincePreviousTurn: '1', direction: 'LEFT' },
   ]);
+  assert.equal(getMovesAfterLastTurn(state), '0');
 });
 
 test('reset starts a new game and clears the input log', () => {
@@ -59,5 +69,6 @@ test('reset starts a new game and clears the input log', () => {
 
   assert.equal(reset.game.seed, 99);
   assert.equal(reset.game.tick, 0);
-  assert.deepEqual(reset.inputLog, []);
+  assert.deepEqual(reset.turnLog, []);
+  assert.equal(reset.previousTurnTick, 0);
 });

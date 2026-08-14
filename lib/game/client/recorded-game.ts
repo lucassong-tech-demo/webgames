@@ -1,4 +1,4 @@
-import type { GameInput } from '../contracts/game-input';
+import type { TurnLogEntry } from '../contracts/turn-log';
 import {
   advanceGame,
   changeDirection,
@@ -9,7 +9,8 @@ import {
 
 export type RecordedGame = Readonly<{
   game: GameState;
-  inputLog: readonly GameInput[];
+  turnLog: readonly TurnLogEntry[];
+  previousTurnTick: number;
 }>;
 
 export type RecordedGameAction =
@@ -20,7 +21,8 @@ export type RecordedGameAction =
 export function createRecordedGame(seed: number): RecordedGame {
   return {
     game: createGameState(seed),
-    inputLog: [],
+    turnLog: [],
+    previousTurnTick: 0,
   };
 }
 
@@ -42,13 +44,21 @@ export function recordedGameReducer(
 
       return {
         game,
-        inputLog: [
-          ...state.inputLog,
-          { tick: state.game.tick, direction: action.direction },
+        turnLog: [
+          ...state.turnLog,
+          {
+            movesSincePreviousTurn: String(state.game.tick - state.previousTurnTick),
+            direction: action.direction,
+          },
         ],
+        previousTurnTick: state.game.tick,
       };
     }
     case 'reset':
       return createRecordedGame(action.seed);
   }
+}
+
+export function getMovesAfterLastTurn(state: RecordedGame) {
+  return String(state.game.tick - state.previousTurnTick);
 }

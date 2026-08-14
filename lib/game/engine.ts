@@ -1,8 +1,11 @@
 export const BOARD_SIZE = 20;
-export const ENGINE_VERSION = 1;
+export const ENGINE_VERSION = 2;
+export const MAX_DIRECTION_CHANGES = 100;
 export const SCORE_PER_FOOD = 10;
+export const WIN_SNAKE_LENGTH = 100;
 
 export type Direction = 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
+export type GameResult = 'PLAYING' | 'LOST' | 'WON' | 'TURN_LIMIT_REACHED';
 
 export type Position = Readonly<{
   x: number;
@@ -17,8 +20,9 @@ export type GameState = Readonly<{
   food: Position | null;
   direction: Direction;
   directionChangedAtTick: number | null;
+  turnsUsed: number;
   score: number;
-  gameOver: boolean;
+  result: GameResult;
 }>;
 
 type RandomResult = Readonly<{
@@ -98,14 +102,16 @@ export function createGameState(seed: number): GameState {
     food: placement.food,
     direction: INITIAL_DIRECTION,
     directionChangedAtTick: null,
+    turnsUsed: 0,
     score: 0,
-    gameOver: false,
+    result: 'PLAYING',
   };
 }
 
 export function changeDirection(state: GameState, direction: Direction): GameState {
   if (
-    state.gameOver ||
+    state.result !== 'PLAYING' ||
+    state.turnsUsed >= MAX_DIRECTION_CHANGES ||
     state.directionChangedAtTick === state.tick ||
     OPPOSITE_DIRECTION[state.direction] === direction
   ) {
@@ -114,7 +120,12 @@ export function changeDirection(state: GameState, direction: Direction): GameSta
 
   return direction === state.direction
     ? state
-    : { ...state, direction, directionChangedAtTick: state.tick };
+    : {
+        ...state,
+        direction,
+        directionChangedAtTick: state.tick,
+        turnsUsed: state.turnsUsed + 1,
+      };
 }
 
 function moveHead(head: Position, direction: Direction): Position {
@@ -131,7 +142,7 @@ function moveHead(head: Position, direction: Direction): Position {
 }
 
 export function advanceGame(state: GameState): GameState {
-  if (state.gameOver) {
+  if (state.result !== 'PLAYING') {
     return state;
   }
 
@@ -139,7 +150,7 @@ export function advanceGame(state: GameState): GameState {
   const nextTick = state.tick + 1;
 
   if (state.snake.slice(1).some(segment => positionsEqual(segment, head))) {
-    return { ...state, tick: nextTick, gameOver: true };
+    return { ...state, tick: nextTick, result: 'LOST' };
   }
 
   const ateFood = state.food !== null && positionsEqual(head, state.food);
@@ -147,7 +158,39 @@ export function advanceGame(state: GameState): GameState {
 
   if (!ateFood) {
     snake.pop();
-    return { ...state, tick: nextTick, snake };
+    return {
+      ...state,
+      tick: nextTick,
+      snake,
+      result:
+        state.turnsUsed >= MAX_DIRECTION_CHANGES
+          ? 'TURN_LIMIT_REACHED'
+          : 'PLAYING',
+    };
+  }
+
+  const score = state.score + SCORE_PER_FOOD;
+
+  if (snake.length >= WIN_SNAKE_LENGTH) {
+    return {
+      ...state,
+      tick: nextTick,
+      snake,
+      food: null,
+      score,
+      result: 'WON',
+    };
+  }
+
+  if (state.turnsUsed >= MAX_DIRECTION_CHANGES) {
+    return {
+      ...state,
+      tick: nextTick,
+      snake,
+      food: null,
+      score,
+      result: 'TURN_LIMIT_REACHED',
+    };
   }
 
   const placement = placeFood(snake, state.randomState);
@@ -157,7 +200,6 @@ export function advanceGame(state: GameState): GameState {
     tick: nextTick,
     snake,
     food: placement.food,
-    score: state.score + SCORE_PER_FOOD,
-    gameOver: placement.food === null,
+    score,
   };
 }
