@@ -4,7 +4,6 @@
 
 - This repository is a small Next.js App Router snake game deployed on Vercel with PostgreSQL/Neon persistence.
 - Preserve the single-application modular monolith. Do not introduce a monorepo, microfrontend, separate backend, global state library, ORM, or other production dependency without a demonstrated need and explicit user approval.
-- This demo accepts the bounded score displayed by the client. Sessions, validation, transactions, uniqueness constraints, and rate limiting limit abuse, but do not prove that a submitted score is genuine.
 
 ## Working agreement
 
@@ -14,6 +13,13 @@
 - Do not commit, push, deploy, or run production database migrations unless explicitly requested.
 - Explain the need before adding a production dependency.
 - Prefer small, reviewable changes. Separate behavior changes from file moves when practical.
+
+## Public security disclosure policy
+
+- Do not place known, suspected, hypothetical, or potential security weaknesses, attack paths, bypass methods, incomplete defenses, or exploitable implementation details in README files, public documentation, release notes, UI copy, examples, or other public-facing artifacts.
+- Keep public-facing content focused on supported behavior, setup, operation, and required configuration. Do not volunteer security weakness information or proof-of-concept attack instructions in user-facing output.
+- If a security concern is discovered, report it privately to the repository owner and keep remediation details out of public repository content unless the owner explicitly approves publication.
+- When the owner explicitly requests private security troubleshooting, provide only the information necessary to remediate the issue and do not copy those details into public-facing files without separate approval.
 
 ## Architecture
 

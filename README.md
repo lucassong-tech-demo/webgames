@@ -1,51 +1,52 @@
 # Webgames — Snake Game
 
-一个使用 Next.js、React 和 PostgreSQL 构建的贪吃蛇游戏 Demo。
+A Snake web game built with Next.js, React, and PostgreSQL.
 
 - Production: [https://easternpurity.com/](https://easternpurity.com/)
 - Framework: Next.js 16.3 / React 19.2
-- Database: PostgreSQL（Production 使用 Neon）
+- Database: PostgreSQL (Neon in production)
 - Deployment: Vercel
 
-## 功能
+## Features
 
-- 20 × 20 游戏棋盘
-- 蛇可以穿过棋盘边界
-- 每吃到一个食物增加 10 分
-- 每局最多转向 100 次
-- 蛇身达到 100 时显示 `You Win!`
-- Game Over 或 Win 后有 10 秒提交成绩
-- 排行榜只保留并显示 Top 5
-- 同名玩家只保留其历史最高分
-- 浏览器标签页不可见时自动暂停游戏
+- 20 × 20 game board
+- The snake wraps around the board edges
+- Each food item adds 10 points
+- Up to 100 turns per game
+- `You Win!` appears when the snake reaches a length of 100
+- A score can be submitted within 10 seconds after Game Over or a win
+- The leaderboard stores and displays only the top five players
+- Each player name retains only its highest score
+- The game pauses automatically when the browser tab is hidden
 
-## 游戏与成绩提交流程
+## Game and score submission flow
 
 ```text
-浏览器                           Next.js API                 PostgreSQL
+Browser                           Next.js API                 PostgreSQL
   │                                  │                           │
   ├─ POST /api/games/start ─────────>│                           │
-  │                                  ├─ 创建 game_session ─────>│
+  │                                  ├─ Create game_session ───>│
   │<─ sessionId / seed / version ────┤                           │
   │                                  │                           │
-  ├─ 在客户端运行游戏                │                           │
+  ├─ Run the game on the client       │                           │
   │                                  │                           │
   ├─ POST /api/games/finish ────────>│                           │
-  │  sessionId / playerName / score  ├─ 校验并事务更新 Top 5 ──>│
-  │<─ 保存结果 ──────────────────────┤                           │
+  │  sessionId / playerName / score  ├─ Validate and update ───>│
+  │                                  │  Top 5 in a transaction   │
+  │<─ Save result ───────────────────┤                           │
   │                                  │                           │
-  └─ GET /api/scores ───────────────>│<─ 查询 Top 5 ────────────│
+  └─ GET /api/scores ───────────────>│<─ Query Top 5 ───────────│
 ```
 
-旧的 `POST /api/scores` 已禁用并返回 `405 Method Not Allowed`；`GET /api/scores` 继续用于读取排行榜。
+The legacy `POST /api/scores` endpoint is disabled and returns `405 Method Not Allowed`. `GET /api/scores` remains available for reading the leaderboard.
 
 ## API
 
 ### `POST /api/games/start`
 
-创建一局服务端游戏会话。请求不需要 body。
+Creates a server-side game session. No request body is required.
 
-成功响应示例：
+Example success response:
 
 ```json
 {
@@ -57,7 +58,7 @@
 
 ### `POST /api/games/finish`
 
-提交本局结果：
+Submits the result of a game:
 
 ```json
 {
@@ -67,23 +68,23 @@
 }
 ```
 
-服务端会验证：
+The server validates that:
 
-- JSON 字段必须精确匹配协议
-- `playerName` 长度为 1–24 个字符
-- `score` 必须为 0–990 之间的 10 的倍数
-- 游戏会话必须存在且引擎版本受支持
-- 同一个会话只能产生一条排行榜记录
+- The JSON fields match the API contract exactly
+- `playerName` contains 1–24 characters
+- `score` is a multiple of 10 between 0 and 990
+- The game session exists and uses a supported engine version
+- Each session produces at most one leaderboard entry
 
-写入在数据库事务中完成。同名玩家再次提交时，只有更高的分数会替换旧分数；最终只保留 Top 5。
+Database writes are completed in a transaction. When the same player name submits again, only a higher score replaces the previous score. The leaderboard retains the top five entries.
 
 ### `GET /api/scores`
 
-返回当前排行榜，按分数从高到低排列，最多 5 条。
+Returns up to five leaderboard entries ordered by score from highest to lowest.
 
-## 数据库
+## Database
 
-当前核心数据结构：
+Core data structure:
 
 ```text
 game_session
@@ -100,7 +101,7 @@ player_score
 UNIQUE (player_name)
 ```
 
-迁移文件位于 [`db/migrations`](db/migrations)。现有数据库应按顺序执行：
+Migration files are located in [`db/migrations`](db/migrations). Run them in order for an existing database:
 
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/001_create_game_session.sql
@@ -108,7 +109,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/002_add_game_session_fi
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/003_simplify_game_sessions_and_leaderboard.sql
 ```
 
-> 注意：迁移 `001` 基于项目早期已经存在的 `player_score` 表。全新空数据库在执行迁移前，需要先创建该基础表：
+> Note: Migration `001` expects the `player_score` table from an earlier version of the project. For a new empty database, create this base table before running the migrations:
 
 ```sql
 CREATE TABLE public.player_score (
@@ -119,39 +120,39 @@ CREATE TABLE public.player_score (
 );
 ```
 
-本地开发建议使用独立数据库（当前约定为 `snakegame_dev`），不要让本地 `.env.local` 指向 Production Neon 数据库。
+Use a separate database for local development. The current convention is `snakegame_dev`. Do not point the local `.env.local` file to the production Neon database.
 
-## 本地开发
+## Local development
 
-安装依赖：
+Install dependencies:
 
 ```bash
 npm install
 ```
 
-在 `.env.local` 中配置本地 PostgreSQL：
+Configure local PostgreSQL in `.env.local`:
 
 ```dotenv
 DATABASE_URL=postgresql://<user>:<password>@localhost:<port>/snakegame_dev
 ```
 
-启动开发服务器：
+Start the development server:
 
 ```bash
 npm run dev
 ```
 
-然后访问 [http://localhost:3000](http://localhost:3000)。
+Then open [http://localhost:3000](http://localhost:3000).
 
-## 验证
+## Verification
 
-类型检查：
+Type checking:
 
 ```bash
 npx tsc --noEmit --incremental false
 ```
 
-单元测试：
+Unit tests:
 
 ```bash
 node --test \
@@ -162,59 +163,44 @@ node --test \
   lib/game/engine.test.ts
 ```
 
-数据库集成测试：
+Database integration tests:
 
 ```bash
 node --test lib/game/server/start-game.integration.test.ts
 node --test lib/game/server/finish-game.integration.test.ts
 ```
 
-集成测试会拒绝连接非本地数据库，并要求数据库名为 `snakegame_dev`。
+The integration tests reject non-local database connections and require the database name to be `snakegame_dev`.
 
-Production 构建：
+Production build:
 
 ```bash
 npm run build
 ```
 
-当前 `npm run lint` 仍沿用旧的 `next lint` 脚本，而 Next.js 16 已不再提供该命令；在替换 lint 配置前，请以 TypeScript 检查和测试作为主要验证。
-
-## 项目结构
+## Project structure
 
 ```text
 app/
 ├── api/
-│   ├── games/start/       # 创建游戏会话
-│   ├── games/finish/      # 完成游戏并更新排行榜
-│   └── scores/            # 只读排行榜 API
-├── game/                  # 游戏页面
-└── page.tsx               # 首页
+│   ├── games/start/       # Create a game session
+│   ├── games/finish/      # Finish a game and update the leaderboard
+│   └── scores/            # Read-only leaderboard API
+├── game/                  # Game page
+└── page.tsx               # Home page
 
 lib/game/
-├── client/                # 客户端状态与 API 调用
-├── contracts/             # API 数据协议
-├── server/                # 服务端会话和排行榜事务
-└── engine.ts              # 确定性游戏引擎与 seeded PRNG
+├── client/                # Client state and API calls
+├── contracts/             # API contracts
+├── server/                # Server-side sessions and leaderboard transactions
+└── engine.ts              # Deterministic game engine and seeded PRNG
 
-db/migrations/             # PostgreSQL 迁移
+db/migrations/             # PostgreSQL migrations
 ```
 
-## 部署与安全边界
+## Deployment
 
-Vercel Production 需要配置 `DATABASE_URL`，并重新部署后才会应用环境变量变化。当前 Vercel Firewall 对游戏开始和结束接口按 IP 限流；Firewall 规则属于 Vercel 控制台配置，不在本仓库中。
-
-当前实现提供以下保护：
-
-- HTTPS 保护传输中的请求内容
-- 服务端会话限制无会话提交
-- 严格输入校验缩小可接受请求范围
-- 唯一约束和事务防止重复提交及并发写入破坏 Top 5
-- Vercel Firewall 缓解高频滥用
-- 旧的直接写分数接口已关闭
-
-这是一个强调简单性的 Demo，不是完全防作弊的竞技排行榜。最终分数仍由客户端提交，因此攻击者可以构造合法格式的虚假分数；HTTPS、JWT 或隐藏计算公式都不能证明客户端确实完成了真实游戏。若未来需要可信排行榜，应恢复服务端确定性重放，或采用权威服务端实时运行游戏状态。
-
-另外，当前 `game_session` 不设过期时间，未完成的会话会保留在数据库中；这是移除生命周期字段后接受的存储权衡。
+Set `DATABASE_URL` for the Production environment in Vercel. Redeploy the application after changing an environment variable. Vercel Firewall currently applies per-IP rate limits to the game start and finish endpoints. Firewall rules are managed in the Vercel dashboard and are not stored in this repository.
 
 ## License
 
