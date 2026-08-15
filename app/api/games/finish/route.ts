@@ -4,7 +4,6 @@ import {
   FinishGameError,
   finishGame,
 } from '@/lib/game/server/finish-game';
-import { InvalidReplayError } from '@/lib/game/server/replay-game';
 
 import {
   MAX_FINISH_REQUEST_BODY_BYTES,
@@ -63,10 +62,6 @@ export async function POST(request: Request) {
       headers: { 'Cache-Control': 'no-store' },
     });
   } catch (error) {
-    if (error instanceof InvalidReplayError) {
-      return NextResponse.json({ error: 'Game replay is invalid' }, { status: 422 });
-    }
-
     if (error instanceof FinishGameError) {
       const status = error.code === 'SESSION_NOT_FOUND' ? 404 : 409;
       return NextResponse.json({ error: error.message }, { status });

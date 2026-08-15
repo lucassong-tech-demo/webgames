@@ -1,12 +1,17 @@
 "use client";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
+import { gameReducer } from "@/lib/game/client/game-state";
 import {
-  createRecordedGame,
-  recordedGameReducer,
-} from "@/lib/game/client/recorded-game";
+  finishGameSession,
+  startGameSession,
+} from "@/lib/game/client/game-api";
+import type { FinishGameResponse } from "@/lib/game/contracts/finish-game";
+import type { StartGameResponse } from "@/lib/game/contracts/start-game";
 import {
   BOARD_SIZE,
+  createGameState,
+  ENGINE_VERSION,
   MAX_DIRECTION_CHANGES,
   type Direction,
 } from "@/lib/game/engine";
@@ -29,34 +34,33 @@ const SPEED_MULTIPLIER = 0.5;
 const MIN_SPEED = 50;  // 最快速度
 const MAX_SPEED = 300; // 最慢速度
 
-function createLocalSeed() {
-  const values = new Uint32Array(1);
-  crypto.getRandomValues(values);
-  return values[0] & 0x7fffffff;
-}
-
 export default function SnakeGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // 修改 gameLoopRef 的定义，提供 null 作为初始值
   const gameLoopRef = useRef<NodeJS.Timeout | null>(null);
   const scoreSubmissionLockedRef = useRef(false);
-  const [recordedGame, dispatchGame] = useReducer(
-    recordedGameReducer,
+  const gameStartLockedRef = useRef(false);
+  const hasRequestedInitialSessionRef = useRef(false);
+  const [game, dispatchGame] = useReducer(
+    gameReducer,
     undefined,
-    () => createRecordedGame(createLocalSeed()),
+    () => createGameState(0),
   );
-  const { game } = recordedGame;
   const { snake, food, score, result, turnsUsed } = game;
   const gameOver = result !== 'PLAYING';
   const turnsRemaining = MAX_DIRECTION_CHANGES - turnsUsed;
   const [error, setError] = useState<string | null>(null);
   const [speed, setSpeed] = useState(INITIAL_SPEED);
+  const [activeSession, setActiveSession] = useState<StartGameResponse | null>(null);
+  const [isStartingGame, setIsStartingGame] = useState(true);
+  const [isPageVisible, setIsPageVisible] = useState(true);
 
   const [countdown, setCountdown] = useState(10);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const [playerName, setPlayerName] = useState<string>('');
   const [saveStatus, setSaveStatus] = useState<SaveStatus>({ isSaving: false, error: null });
   const [hasSubmittedScore, setHasSubmittedScore] = useState(false);
+  const [submissionResult, setSubmissionResult] = useState<FinishGameResponse | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [isLeaderboardLoading, setIsLeaderboardLoading] = useState(true);
   const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
@@ -149,9 +153,14 @@ export default function SnakeGame() {
     const newDirection = keyDirections[event.key];
     if (!newDirection) return;
 
+    if (!activeSession || isStartingGame || gameOver || !isPageVisible) {
+      event.preventDefault();
+      return;
+    }
+
     dispatchGame({ type: 'change-direction', direction: newDirection });
     event.preventDefault();
-  }, []);
+  }, [activeSession, gameOver, isPageVisible, isStartingGame]);
 
   // 添加保存分数的函数
   const saveScore = async () => {
@@ -160,71 +169,110 @@ export default function SnakeGame() {
       !normalizedPlayerName ||
       countdown === 0 ||
       hasSubmittedScore ||
-      scoreSubmissionLockedRef.current
+      scoreSubmissionLockedRef.current ||
+      !activeSession ||
+      isStartingGame ||
+      !gameOver
     ) return;
 
     scoreSubmissionLockedRef.current = true;
     
     try {
       setSaveStatus({ isSaving: true, error: null });
-      const response = await fetch('/api/scores', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          playerName: normalizedPlayerName,
-          score,
-        }),
+      const verifiedResult = await finishGameSession({
+        sessionId: activeSession.sessionId,
+        playerName: normalizedPlayerName,
+        score,
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        scoreSubmissionLockedRef.current = false;
-        setSaveStatus({
-          isSaving: false,
-          error: data.error || 'Failed to save score',
-        });
-        return;
-      }
 
       setSaveStatus({ isSaving: false, error: null });
       setHasSubmittedScore(true);
+      setSubmissionResult(verifiedResult);
+      if (countdownRef.current) {
+        clearInterval(countdownRef.current);
+        countdownRef.current = null;
+      }
       await loadLeaderboard();
-      alert('Score saved successfully!');
     } catch (error) {
       console.error('Error saving score:', error);
       scoreSubmissionLockedRef.current = false;
       setSaveStatus({ 
         isSaving: false, 
-        error: 'Failed to save score' 
+        error: error instanceof Error ? error.message : 'Failed to save score',
       });
     }
   };
 
-  // 重置游戏
-  const resetGame = useCallback(() => {
+  const startNewGame = useCallback(async () => {
+    if (gameStartLockedRef.current) return;
+
+    gameStartLockedRef.current = true;
+
     if (gameLoopRef.current) {
       clearInterval(gameLoopRef.current);
       gameLoopRef.current = null;
     }
-    dispatchGame({ type: 'reset', seed: createLocalSeed() });
-    setPlayerName('');
-    setHasSubmittedScore(false);
-    setSaveStatus({ isSaving: false, error: null });
-    scoreSubmissionLockedRef.current = false;
 
     if (countdownRef.current) {
       clearInterval(countdownRef.current);
       countdownRef.current = null;
     }
+
+    setIsStartingGame(true);
+    setActiveSession(null);
+    setPlayerName('');
+    setHasSubmittedScore(false);
+    setSubmissionResult(null);
+    setSaveStatus({ isSaving: false, error: null });
+    scoreSubmissionLockedRef.current = false;
     setCountdown(10);
+
+    try {
+      const session = await startGameSession();
+
+      if (session.engineVersion !== ENGINE_VERSION) {
+        throw new Error('Game server uses an unsupported engine version');
+      }
+
+      dispatchGame({ type: 'reset', seed: session.seed });
+      setActiveSession(session);
+    } catch (error) {
+      console.error('Error starting game:', error);
+      setError(error instanceof Error ? error.message : 'Unable to start game');
+    } finally {
+      gameStartLockedRef.current = false;
+      setIsStartingGame(false);
+    }
   }, []);
+
+  // 重置游戏
+  const resetGame = useCallback(() => {
+    void startNewGame();
+  }, [startNewGame]);
+
+  useEffect(() => {
+    if (hasRequestedInitialSessionRef.current) return;
+
+    hasRequestedInitialSessionRef.current = true;
+    void startNewGame();
+  }, [startNewGame]);
 
   useEffect(() => {
     loadLeaderboard();
   }, [loadLeaderboard]);
+
+  useEffect(() => {
+    const updateVisibility = () => {
+      setIsPageVisible(document.visibilityState === 'visible');
+    };
+
+    updateVisibility();
+    document.addEventListener('visibilitychange', updateVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', updateVisibility);
+    };
+  }, []);
 
 
   const handleSpeedChange = useCallback((type: 'increase' | 'decrease') => {
@@ -264,7 +312,7 @@ export default function SnakeGame() {
 
   // 游戏循环只推进引擎 tick；绘制由独立 effect 处理
   useEffect(() => {
-    if (gameOver) return;
+    if (gameOver || isStartingGame || !activeSession || !isPageVisible) return;
 
     const gameLoop = setInterval(() => {
       moveSnake();
@@ -278,7 +326,7 @@ export default function SnakeGame() {
         gameLoopRef.current = null;
       }
     };
-  }, [gameOver, moveSnake, speed]);
+  }, [activeSession, gameOver, isPageVisible, isStartingGame, moveSnake, speed]);
 
   useEffect(() => {
     if (!gameOver) return;
@@ -336,6 +384,11 @@ export default function SnakeGame() {
           <div className="mb-4 text-lg font-semibold text-gray-700">
             Turns Remaining: {turnsRemaining}
           </div>
+          {isStartingGame && (
+            <div className="mb-4 text-sm font-semibold text-blue-600">
+              Starting secure game session...
+            </div>
+          )}
           <canvas
             ref={canvasRef}
             width={CANVAS_SIZE}
@@ -434,18 +487,20 @@ export default function SnakeGame() {
               type="text"
               value={playerName}
               onChange={handleNameChange}
-              disabled={hasSubmittedScore}
+              disabled={hasSubmittedScore || isStartingGame}
               placeholder="Enter your name"
               className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-gray-900
                       caret-blue-600 placeholder:text-gray-400
                       disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500
                       focus:outline-none focus:ring-2 focus:ring-blue-500
                       w-64" // 增加输入框宽度
-              maxLength={50}
+              maxLength={24}
               autoFocus // 自动聚焦
             />
             {hasSubmittedScore ? (
-              <div className="text-lg font-medium text-green-600">Score saved</div>
+              <div className="text-lg font-medium text-green-600">
+                Final Score: {submissionResult?.finalScore}
+              </div>
             ) : (
               <div className="text-lg text-gray-600">Time to save: {countdown}s</div>
             )}
@@ -453,16 +508,18 @@ export default function SnakeGame() {
           <div className="flex gap-4">
             <button
               onClick={resetGame}
+              disabled={isStartingGame}
               className="px-6 py-3 bg-green-500 text-white rounded-lg font-bold
-                      hover:bg-green-600 transition-colors duration-200"
+                      hover:bg-green-600 transition-colors duration-200
+                      disabled:cursor-not-allowed disabled:bg-gray-400"
             >
-              Play Again
+              {isStartingGame ? 'Starting...' : 'Play Again'}
             </button>
             <button
               onClick={saveScore}
-              disabled={!playerName.trim() || countdown === 0 || saveStatus.isSaving || hasSubmittedScore}
+              disabled={!playerName.trim() || countdown === 0 || saveStatus.isSaving || hasSubmittedScore || !activeSession || isStartingGame}
               className={`px-6 py-3 rounded-lg font-bold transition-colors duration-200
-                ${!playerName.trim() || countdown === 0 || saveStatus.isSaving || hasSubmittedScore
+                ${!playerName.trim() || countdown === 0 || saveStatus.isSaving || hasSubmittedScore || !activeSession || isStartingGame
                   ? 'bg-gray-400 cursor-not-allowed'
                   : 'bg-blue-500 hover:bg-blue-600 text-white'}`}
             >
@@ -471,6 +528,13 @@ export default function SnakeGame() {
           </div>
           {saveStatus.error && (
             <div className="mt-2 text-red-500">{saveStatus.error}</div>
+          )}
+          {submissionResult && (
+            <div className="mt-2 text-sm text-gray-600">
+              {submissionResult.qualifiedForLeaderboard
+                ? 'Your verified score is in the Top 5.'
+                : 'Your game was verified, but the score did not enter the Top 5.'}
+            </div>
           )}
         </div>
       )}

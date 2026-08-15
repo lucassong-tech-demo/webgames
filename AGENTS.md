@@ -4,7 +4,7 @@
 
 - This repository is a small Next.js App Router snake game deployed on Vercel with PostgreSQL/Neon persistence.
 - Preserve the single-application modular monolith. Do not introduce a monorepo, microfrontend, separate backend, global state library, ORM, or other production dependency without a demonstrated need and explicit user approval.
-- Score integrity is based on deterministic server-side replay. The client is never an authoritative source for a score.
+- This demo accepts the bounded score displayed by the client. Sessions, validation, transactions, uniqueness constraints, and rate limiting limit abuse, but do not prove that a submitted score is genuine.
 
 ## Working agreement
 
@@ -29,21 +29,20 @@
 - Game-domain code must remain deterministic and usable by both client and server.
 - Game-domain code must not import React, Next.js, `pg`, environment variables, or browser-only APIs.
 - Do not read `Math.random()`, `Date.now()`, `crypto`, or other nondeterministic state inside the game engine. Pass seeds, time, and other external values explicitly.
-- Treat `ENGINE_VERSION` as a persisted protocol version. A rule change that can alter replay output requires an explicit compatibility decision and tests.
+- Treat `ENGINE_VERSION` as a persisted protocol version. A game-rule change requires an explicit compatibility decision and tests.
 - Client modules must not import server modules, database code, or secrets.
 - Mark server-only modules with `server-only` when that dependency is available and the module could otherwise enter the client graph.
 - Keep database row shapes internal. Map snake_case database fields to explicit API/domain DTOs instead of leaking them into UI types.
 
-## API and score-integrity rules
+## API and score-submission rules
 
 - Treat every Route Handler as a public endpoint and every request value as untrusted.
-- Validate content type, body size, JSON shape, string limits, operation count, tick bounds, session state, expiry, and engine version before expensive work.
-- Never accept a client-provided score as authoritative. Load the stored session seed, replay the submitted input log, and derive the accepted score on the server.
-- Bound replay work independently of HTTP body size to prevent resource exhaustion.
+- Validate content type, body size, exact JSON shape, player-name limits, score bounds, session state, and engine version.
+- Accept only integer scores attainable by the current game rules, while recognizing that bounds validation does not establish score authenticity.
 - Finalizing a game session and recording its score must be atomic and idempotent.
 - Use database constraints and a unique session-to-score relationship as defense in depth.
 - Do not expose secrets, SQL details, stack traces, or internal error messages in API responses.
-- Rate limiting is supplemental protection; it does not replace validation, replay, transactions, or uniqueness constraints.
+- Rate limiting is supplemental protection; it does not replace validation, transactions, or uniqueness constraints.
 
 ## PostgreSQL and migrations
 
@@ -63,14 +62,14 @@
 - `npm run lint` currently invokes the removed `next lint` command and is not a valid lint check. Do not report lint as passing until the project script is repaired.
 - When stable `test`, `typecheck`, and `lint` package scripts are introduced, prefer those scripts and update this section in the same change.
 - Add pure unit tests beside deterministic domain and validation code. Put tests requiring a real PostgreSQL transaction in a clearly named integration-test location.
-- Before handing off a security-sensitive change, cover the relevant failure paths, including malformed input, replay mismatch, expired sessions, duplicate submission, unsupported engine versions, and transaction rollback.
+- Before handing off a score-submission change, cover malformed input, impossible score values, duplicate submission, unsupported engine versions, and transaction rollback.
 - If a check was not run, state the reason instead of implying it passed.
 
 ## Review priorities
 
-- Replay determinism and engine-version compatibility.
+- Engine-version compatibility and attainable score bounds.
 - Client/server boundary violations or secrets entering the client graph.
-- Untrusted input reaching SQL, replay, logs, or rendered output without appropriate validation.
+- Untrusted input reaching SQL, logs, or rendered output without appropriate validation.
 - Missing transaction, locking, idempotency, or uniqueness protection.
 - Migration reproducibility from an empty database and compatibility with already deployed data.
 - Scope creep, speculative abstraction, and dependencies added without evidence of need.

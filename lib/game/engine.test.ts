@@ -8,6 +8,7 @@ import {
   createGameState,
   ENGINE_VERSION,
   MAX_DIRECTION_CHANGES,
+  MAX_SCORE,
   nextRandomUint32,
   SCORE_PER_FOOD,
   WIN_SNAKE_LENGTH,
@@ -18,6 +19,7 @@ import {
 test('uses the turn-limited game rules protocol', () => {
   assert.equal(ENGINE_VERSION, 2);
   assert.equal(MAX_DIRECTION_CHANGES, 100);
+  assert.equal(MAX_SCORE, 990);
   assert.equal(WIN_SNAKE_LENGTH, 100);
 });
 

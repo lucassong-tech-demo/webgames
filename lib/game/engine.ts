@@ -3,6 +3,7 @@ export const ENGINE_VERSION = 2;
 export const MAX_DIRECTION_CHANGES = 100;
 export const SCORE_PER_FOOD = 10;
 export const WIN_SNAKE_LENGTH = 100;
+export const MAX_SCORE = (WIN_SNAKE_LENGTH - 1) * SCORE_PER_FOOD;
 
 export type Direction = 'UP' | 'DOWN' | 'LEFT' | 'RIGHT';
 export type GameResult = 'PLAYING' | 'LOST' | 'WON' | 'TURN_LIMIT_REACHED';

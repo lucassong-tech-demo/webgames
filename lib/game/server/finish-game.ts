@@ -5,7 +5,6 @@ import type {
   FinishGameResponse,
 } from '../contracts/finish-game.ts';
 import { ENGINE_VERSION } from '../engine.ts';
-import { calculateFinalScore, replayGame } from './replay-game.ts';
 
 let pool: Pool | undefined;
 
@@ -193,8 +192,6 @@ export async function finishGame(
   database: FinishGameDatabase = getPool(),
 ): Promise<FinishGameResponse> {
   const session = assertSupportedSession(await loadSession(database, input.sessionId));
-  const replayed = replayGame(session.seed, input);
-  const finalScore = calculateFinalScore(replayed);
   const client = await database.connect();
 
   try {
@@ -202,14 +199,13 @@ export async function finishGame(
     const qualifiedForLeaderboard = await recordFinishedGame(client, {
       session,
       playerName: input.playerName,
-      finalScore,
+      finalScore: input.score,
     });
     await client.query('COMMIT');
 
     return {
-      finalScore,
+      finalScore: input.score,
       qualifiedForLeaderboard,
-      result: replayed.result,
     };
   } catch (error) {
     await client.query('ROLLBACK');
